@@ -1,15 +1,24 @@
 import * as THREE from 'https://unpkg.com/three@0.127.0/build/three.module.js';
 
-let scene, camera, renderer, controls;
-let textureLoader = new THREE.TextureLoader();
-let blocks = [];
-let selectedBlock = null;
-let isInventoryOpen = false;
+let scene, camera, renderer, dino, ground, obstacles = [];
+let isJumping = false, isFalling = false, isGameOver = false, speed = 0.1;
+let health = 100, score = 0, highScore = 0;
+const gravity = 0.03, jumpSpeed = 0.2, obstacleSpeed = 0.1, obstacleFrequency = 100;
+let frameCount = 0;
+const healthBar = document.getElementById('healthBar');
+const scoreDisplay = document.getElementById('score');
+const highScoreDisplay = document.getElementById('highScore');
+const gameOverMenu = document.getElementById('gameOverMenu');
+const currentScoreDisplay = document.getElementById('currentScore');
+const lastScoreDisplay = document.getElementById('lastScore');
+const retryButton = document.getElementById('retryButton');
+
+const textureLoader = new THREE.TextureLoader();
 const textures = {
-    stone: textureLoader.load('textures/stone.jpg'),
     mud: textureLoader.load('textures/mud.jpg'),
-    wood: textureLoader.load('textures/wood.jpg'),
-    grass: textureLoader.load('textures/grass.jpg')
+    stone: textureLoader.load('textures/stone.jpg'),
+    grass: textureLoader.load('textures/grass.jpg'),
+    wood: textureLoader.load('textures/wood.jpg')
 };
 
 init();
@@ -19,113 +28,153 @@ function init() {
     scene = new THREE.Scene();
 
     camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-    camera.position.set(0, 5, 10);
+    camera.position.set(0, 2, 5);
+    camera.lookAt(0, 0, 0);
 
     renderer = new THREE.WebGLRenderer();
     renderer.setSize(window.innerWidth, window.innerHeight);
-    document.getElementById('world').appendChild(renderer.domElement);
+    document.body.appendChild(renderer.domElement);
 
     // Create ground
-    const groundGeometry = new THREE.PlaneGeometry(100, 100);
-    const groundMaterial = new THREE.MeshBasicMaterial({ map: textures.mud });
-    const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+    const groundGeometry = new THREE.PlaneGeometry(200, 10);
+    const groundMaterial = new THREE.MeshBasicMaterial({ map: textures.grass });
+    ground = new THREE.Mesh(groundGeometry, groundMaterial);
     ground.rotation.x = -Math.PI / 2;
     scene.add(ground);
 
-    // Add some initial blocks for visibility
-    addBlock(0, 0.5, 0, 'stone');
-    addBlock(1, 0.5, 0, 'wood');
-    addBlock(-1, 0.5, 0, 'grass');
+    // Create dino
+    const dinoGeometry = new THREE.BoxGeometry(1, 1, 2);
+    const dinoMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+    dino = new THREE.Mesh(dinoGeometry, dinoMaterial);
+    dino.position.set(0, 0.5, 0);
+    scene.add(dino);
 
-    // Inventory event listeners
-    document.getElementById('stone').addEventListener('click', () => setSelectedBlock('stone'));
-    document.getElementById('mud').addEventListener('click', () => setSelectedBlock('mud'));
-    document.getElementById('wood').addEventListener('click', () => setSelectedBlock('wood'));
-    document.getElementById('grass').addEventListener('click', () => setSelectedBlock('grass'));
+    // Load high score from local storage
+    highScore = localStorage.getItem('highScore') || 0;
+    highScoreDisplay.innerText = `High Score: ${highScore}`;
 
-    // Mouse event listeners
-    window.addEventListener('mousedown', onDocumentMouseDown, false);
-    window.addEventListener('mousemove', onDocumentMouseMove, false);
-    window.addEventListener('wheel', onDocumentMouseWheel, false);
+    // Event listeners
+    window.addEventListener('click', onDocumentClick, false);
     window.addEventListener('resize', onWindowResize, false);
+    retryButton.addEventListener('click', retryGame);
+
+    // Add initial obstacles
+    addObstacle();
 }
 
 function animate() {
+    if (isGameOver) return;
+
     requestAnimationFrame(animate);
+
+    // Dino jump logic
+    if (isJumping) {
+        dino.position.y += jumpSpeed;
+        if (dino.position.y >= 2) {
+            isJumping = false;
+            isFalling = true;
+        }
+    } else if (isFalling) {
+        dino.position.y -= gravity;
+        if (dino.position.y <= 0.5) {
+            dino.position.y = 0.5;
+            isFalling = false;
+        }
+    }
+
+    // Move obstacles
+    obstacles.forEach(obstacle => {
+        obstacle.position.z += obstacleSpeed;
+    });
+
+    // Add new obstacles and remove old ones
+    if (frameCount % obstacleFrequency === 0) {
+        addObstacle();
+    }
+
+    if (obstacles.length > 0 && obstacles[0].position.z > 10) {
+        scene.remove(obstacles.shift());
+    }
+
+    // Collision detection
+    obstacles.forEach(obstacle => {
+        if (dino.position.distanceTo(obstacle.position) < 1) {
+            health -= 10;
+            healthBar.style.width = `${health}%`;
+            if (health <= 0) {
+                endGame();
+            }
+        }
+    });
+
+    // Update score
+    score++;
+    scoreDisplay.innerText = `Score: ${score}`;
 
     renderer.setScissorTest(true);
 
     // Left eye
     renderer.setScissor(0, 0, window.innerWidth / 2, window.innerHeight);
     renderer.setViewport(0, 0, window.innerWidth / 2, window.innerHeight);
-    camera.setViewOffset(window.innerWidth, window.innerHeight, 0, 0, window.innerWidth, window.innerHeight);
+    camera.setViewOffset(window.innerWidth, window.innerHeight, -window.innerWidth / 4, 0, window.innerWidth, window.innerHeight);
     renderer.render(scene, camera);
 
     // Right eye
     renderer.setScissor(window.innerWidth / 2, 0, window.innerWidth / 2, window.innerHeight);
     renderer.setViewport(window.innerWidth / 2, 0, window.innerWidth / 2, window.innerHeight);
-    camera.setViewOffset(window.innerWidth, window.innerHeight, window.innerWidth / 2, 0, window.innerWidth, window.innerHeight);
+    camera.setViewOffset(window.innerWidth, window.innerHeight, window.innerWidth / 4, 0, window.innerWidth, window.innerHeight);
     renderer.render(scene, camera);
 
     renderer.setScissorTest(false);
+
+    frameCount++;
 }
 
-function setSelectedBlock(type) {
-    selectedBlock = type;
-    isInventoryOpen = false;
-    document.getElementById('inventory').style.display = 'none';
-}
-
-function addBlock(x, y, z, type) {
-    const geometry = new THREE.BoxGeometry();
-    const material = new THREE.MeshBasicMaterial({ map: textures[type] });
-    const block = new THREE.Mesh(geometry, material);
-    block.position.set(x, y, z);
-    scene.add(block);
-    blocks.push(block);
-}
-
-function onDocumentMouseDown(event) {
-    event.preventDefault();
-
-    if (event.button === 2) { // Right-click
-        isInventoryOpen = !isInventoryOpen;
-        document.getElementById('inventory').style.display = isInventoryOpen ? 'flex' : 'none';
-    }
-
-    if (event.button === 0 && selectedBlock) { // Left-click
-        const intersects = getIntersects(event.clientX, event.clientY);
-        if (intersects.length > 0) {
-            const intersect = intersects[0];
-            const pos = intersect.point.clone().add(intersect.face.normal);
-            pos.divideScalar(1).floor().multiplyScalar(1).addScalar(0.5);
-            addBlock(pos.x, pos.y, pos.z, selectedBlock);
-        }
+function onDocumentClick(event) {
+    if (!isJumping && !isFalling) {
+        isJumping = true;
     }
 }
 
-function onDocumentMouseMove(event) {
-    if (event.buttons === 1) { // Left mouse button is held down
-        camera.rotation.y -= event.movementX * 0.002;
-        camera.rotation.x -= event.movementY * 0.002;
-    }
-}
-
-function onDocumentMouseWheel(event) {
-    const delta = Math.sign(event.deltaY);
-    camera.position.z += delta * 0.5;
-}
-
-function getIntersects(x, y) {
-    const mouseVector = new THREE.Vector2();
-    mouseVector.set((x / window.innerWidth) * 2 - 1, -(y / window.innerHeight) * 2 + 1);
-    const raycaster = new THREE.Raycaster();
-    raycaster.setFromCamera(mouseVector, camera);
-    return raycaster.intersectObjects(blocks.concat(scene.children));
+function addObstacle() {
+    const obstacleGeometry = new THREE.BoxGeometry(1, 1, 1);
+    const obstacleMaterial = new THREE.MeshBasicMaterial({ map: textures.stone });
+    const obstacle = new THREE.Mesh(obstacleGeometry, obstacleMaterial);
+    obstacle.position.set(Math.random() * 4 - 2, 0.5, -20);
+    obstacles.push(obstacle);
+    scene.add(obstacle);
 }
 
 function onWindowResize() {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
+}
+
+function endGame() {
+    isGameOver = true;
+
+    if (score > highScore) {
+        highScore = score;
+        localStorage.setItem('highScore', highScore);
+    }
+
+    currentScoreDisplay.innerText = `Current Score: ${score}`;
+    lastScoreDisplay.innerText = `Last Score: ${score}`;
+    highScoreDisplay.innerText = `High Score: ${highScore}`;
+    gameOverMenu.style.display = 'block';
+}
+
+function retryGame() {
+    // Reset game state
+    isGameOver = false;
+    health = 100;
+    score = 0;
+    healthBar.style.width = '100%';
+    obstacles.forEach(obstacle => scene.remove(obstacle));
+    obstacles = [];
+    dino.position.set(0, 0.5, 0);
+    frameCount = 0;
+    gameOverMenu.style.display = 'none';
+    animate();
 }
