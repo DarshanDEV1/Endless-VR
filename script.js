@@ -1,6 +1,6 @@
 import * as THREE from 'https://unpkg.com/three@0.127.0/build/three.module.js';
 
-let scene, camera, renderer, dino, ground, obstacles = [];
+let scene, cameraLeft, cameraRight, renderer, dino, ground, obstacles = [];
 let isJumping = false, isFalling = false, isGameOver = false, speed = 0.1;
 let health = 100, score = 0, highScore = 0;
 const gravity = 0.03, jumpSpeed = 0.2, obstacleSpeed = 0.1, obstacleFrequency = 100;
@@ -27,9 +27,15 @@ animate();
 function init() {
     scene = new THREE.Scene();
 
-    camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-    camera.position.set(0, 2, 5);
-    camera.lookAt(0, 0, 0);
+    // Create left eye camera
+    cameraLeft = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    cameraLeft.position.set(1, 2, 5);
+    cameraLeft.lookAt(0, 0, 0);
+
+    // Create right eye camera
+    cameraRight = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    cameraRight.position.set(-1, 2, 5);
+    cameraRight.lookAt(0, 0, 0);
 
     renderer = new THREE.WebGLRenderer();
     renderer.setSize(window.innerWidth, window.innerHeight);
@@ -111,19 +117,16 @@ function animate() {
     score++;
     scoreDisplay.innerText = `Score: ${score}`;
 
-    renderer.setScissorTest(true);
-
-    // Left eye
-    renderer.setScissor(0, 0, window.innerWidth / 2, window.innerHeight);
+    // Render left eye view
     renderer.setViewport(0, 0, window.innerWidth / 2, window.innerHeight);
-    camera.setViewOffset(window.innerWidth, window.innerHeight, -window.innerWidth / 4, 0, window.innerWidth, window.innerHeight);
-    renderer.render(scene, camera);
+    renderer.setScissor(0, 0, window.innerWidth / 2, window.innerHeight);
+    renderer.setScissorTest(true);
+    renderer.render(scene, cameraLeft);
 
-    // Right eye
-    renderer.setScissor(window.innerWidth / 2, 0, window.innerWidth / 2, window.innerHeight);
+    // Render right eye view
     renderer.setViewport(window.innerWidth / 2, 0, window.innerWidth / 2, window.innerHeight);
-    camera.setViewOffset(window.innerWidth, window.innerHeight, window.innerWidth / 4, 0, window.innerWidth, window.innerHeight);
-    renderer.render(scene, camera);
+    renderer.setScissor(window.innerWidth / 2, 0, window.innerWidth / 2, window.innerHeight);
+    renderer.render(scene, cameraRight);
 
     renderer.setScissorTest(false);
 
@@ -146,8 +149,10 @@ function addObstacle() {
 }
 
 function onWindowResize() {
-    camera.aspect = window.innerWidth / window.innerHeight;
-    camera.updateProjectionMatrix();
+    cameraLeft.aspect = window.innerWidth / window.innerHeight;
+    cameraLeft.updateProjectionMatrix();
+    cameraRight.aspect = window.innerWidth / window.innerHeight;
+    cameraRight.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
 }
 
